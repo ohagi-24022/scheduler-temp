@@ -59,6 +59,14 @@ button {
   min-height: 100vh;
 }
 
+.app-loading {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  color: var(--blue);
+  font-weight: 800;
+}
+
 .site-header {
   position: sticky;
   z-index: 20;

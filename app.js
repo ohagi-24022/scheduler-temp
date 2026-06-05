@@ -12,17 +12,9 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 
-// 匿名ログイン
-auth.onAuthStateChanged((user) => {
-  if (user) {
-    console.log("匿名ログイン完了:", user.uid);
-    render();
-  } else {
-    auth.signInAnonymously().catch(console.error);
-  }
-});
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
+let authReadyPromise;
 
 const ICONS = {
   calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="m8 15 2.2 2.2L16 12"/></svg>',
@@ -137,7 +129,7 @@ function addDays(date, count) {
 }
 
 function eventDates() {
-  const event = getEvent(state.eventId);
+  const event = state.currentEvent?.id === state.eventId ? state.currentEvent : null;
   return event?.dates || [];
 }
 
@@ -148,27 +140,170 @@ function makeEventDates() {
   return dates;
 }
 
+function waitForAuth() {
+  if (authReadyPromise) return authReadyPromise;
+
+  authReadyPromise = new Promise((resolve, reject) => {
+    const unsubscribe = auth.onAuthStateChanged(
+      async (user) => {
+        if (user) {
+          unsubscribe();
+          resolve(user);
+          return;
+        }
+
+        try {
+          await auth.signInAnonymously();
+        } catch (error) {
+          unsubscribe();
+          reject(error);
+        }
+      },
+      (error) => {
+        unsubscribe();
+        reject(error);
+      },
+    );
+  });
+
+  return authReadyPromise;
+}
+
+function firebaseErrorMessage(error) {
+  const code = error?.code || "";
+  if (code === "auth/operation-not-allowed") {
+    return "Firebase Authenticationで匿名認証を有効にしてください。";
+  }
+  if (code === "auth/unauthorized-domain") {
+    return "Firebase Authenticationの承認済みドメインに、このサイトのドメインを追加してください。";
+  }
+  if (code === "permission-denied" || code === "firestore/permission-denied") {
+    return "Firestoreのセキュリティルールでアクセスが拒否されました。";
+  }
+  if (code === "unavailable" || code === "firestore/unavailable") {
+    return "Firebaseへ接続できません。通信環境を確認してください。";
+  }
+  return error?.message || "Firebaseの初期化に失敗しました。";
+}
+
+function createSampleEvent() {
+  const dates = makeEventDates();
+  const sampleNames = [
+    ["たろう", "👑"],
+    ["はなこ", "☀️"],
+    ["けんた", "🚙"],
+    ["ゆうき", "🌙"],
+  ];
+  const participants = sampleNames.map(([name, stamp], index) => ({
+    id: `sample-${index}`,
+    name,
+    stamps: [stamp],
+    availability: Object.fromEntries(
+      dates.map((date, dateIndex) => {
+        const available = (dateIndex + index) % 4 !== 2;
+        const start = 9 + ((dateIndex + index) % 5);
+        return [
+          date,
+          {
+            status: available ? ((dateIndex + index) % 5 === 0 ? "maybe" : "yes") : "no",
+            mode: "time",
+            ranges: available
+              ? [
+                  {
+                    start: `${String(start).padStart(2, "0")}:00`,
+                    end: `${String(Math.min(start + 4, 21)).padStart(2, "0")}:00`,
+                  },
+                ]
+              : [],
+          },
+        ];
+      }),
+    ),
+  }));
+
+  return {
+    id: "trip2026",
+    name: "夏休み旅行の予定調整",
+    description: "みんなで行く旅行の日程を決めよう。空いている日と時間を教えてください！",
+    dates,
+    createdAt: new Date().toISOString(),
+    participants,
+    isSample: true,
+  };
+}
+
+async function ensureSampleEvent(user) {
+  const ref = db.collection("events").doc("trip2026");
+  const snapshot = await ref.get();
+  if (!snapshot.exists) {
+    await ref.set({
+      ...createSampleEvent(),
+      ownerId: user.uid,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+}
+
 async function getEvent(id) {
   try {
+    if (state.currentEvent?.id === id) return state.currentEvent;
+    await waitForAuth();
     const doc = await db.collection("events").doc(id).get();
     if (doc.exists) {
-      state.currentEvent = doc.data();
+      state.currentEvent = { ...doc.data(), id: doc.id };
       return state.currentEvent;
     }
     return null;
   } catch (error) {
     console.error("イベント取得エラー:", error);
-    return null;
+    throw error;
   }
 }
 
 async function saveEvent(event) {
   try {
-    await db.collection("events").doc(event.id).set(event);
-    state.currentEvent = event;
+    const user = await waitForAuth();
+    const data = {
+      ...event,
+      ownerId: event.ownerId || user.uid,
+      updatedAt: new Date().toISOString(),
+    };
+    await db.collection("events").doc(event.id).set(data);
+    state.currentEvent = data;
+    return data;
   } catch (error) {
     console.error("イベント保存エラー:", error);
+    throw error;
   }
+}
+
+async function upsertParticipant(eventId, participant) {
+  await waitForAuth();
+  const ref = db.collection("events").doc(eventId);
+
+  const updatedEvent = await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists) throw new Error("イベントが見つかりません。");
+
+    const event = { ...snapshot.data(), id: snapshot.id };
+    const participants = Array.isArray(event.participants) ? [...event.participants] : [];
+    const existingIndex = participants.findIndex(
+      (item) => item.name === participant.name && !String(item.id).startsWith("sample"),
+    );
+
+    if (existingIndex >= 0) participants[existingIndex] = participant;
+    else participants.push(participant);
+
+    transaction.update(ref, {
+      participants,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return { ...event, participants };
+  });
+
+  state.currentEvent = updatedEvent;
+  return updatedEvent;
 }
 
 function makeId() {
@@ -660,8 +795,10 @@ function bindCommon() {
 }
 
 function bindHome() {
-  document.querySelector("#create-form")?.addEventListener("submit",async (event) => {
+  document.querySelector("#create-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
     const form = new FormData(event.currentTarget);
     const id = makeId();
     const newEvent = {
@@ -672,9 +809,14 @@ function bindHome() {
       createdAt: new Date().toISOString(),
       participants: [],
     };
-    await saveEvent(newEvent);
-    state.eventId = id;
-    navigate(`/e/${id}`);
+    try {
+      await saveEvent(newEvent);
+      state.eventId = id;
+      navigate(`/e/${id}`);
+    } catch (error) {
+      showToast(firebaseErrorMessage(error));
+      submitButton.disabled = false;
+    }
   });
 }
 
@@ -757,7 +899,8 @@ function bindDetails(event) {
 }
 
 function bindReview(event) {
-  document.querySelector("#submit-schedule")?.addEventListener("click",async () => {
+  document.querySelector("#submit-schedule")?.addEventListener("click", async (clickEvent) => {
+    clickEvent.currentTarget.disabled = true;
     const participant = {
       id: makeId(),
       name: state.profile.name,
@@ -766,12 +909,14 @@ function bindReview(event) {
         Object.entries(state.schedule).map(([key, entry]) => [key, { ...entry, ranges: entryRanges(entry) }]),
       ),
     };
-    const existingIndex = event.participants.findIndex((item) => item.name === participant.name && !item.id.startsWith("sample"));
-    if (existingIndex >= 0) event.participants[existingIndex] = participant;
-    else event.participants.push(participant);
-    await saveEvent(event);
-    showToast("予定を提出しました");
-    navigate(`/e/${event.id}/results`);
+    try {
+      await upsertParticipant(event.id, participant);
+      showToast("予定を提出しました");
+      navigate(`/e/${event.id}/results`);
+    } catch (error) {
+      showToast(firebaseErrorMessage(error));
+      clickEvent.currentTarget.disabled = false;
+    }
   });
 }
 
@@ -802,6 +947,18 @@ function renderNotFound() {
     `<section class="card form-card center"><h1>イベントが見つかりません</h1><p class="card-subtitle">URLが正しいか確認するか、新しいイベントを作成してください。</p><a class="primary-button" href="#/">トップへ戻る</a></section>`,
     { narrow: true },
   );
+}
+
+function renderFirebaseError(error) {
+  app.innerHTML = shell(
+    `<section class="card form-card center">
+      <h1>Firebaseに接続できませんでした</h1>
+      <p class="card-subtitle">${escapeHtml(firebaseErrorMessage(error))}</p>
+      <button class="primary-button" id="retry-firebase">再試行する</button>
+    </section>`,
+    { narrow: true },
+  );
+  document.querySelector("#retry-firebase")?.addEventListener("click", () => location.reload());
 }
 
 async function render() {
@@ -849,7 +1006,31 @@ async function render() {
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 
-window.addEventListener("hashchange", render);
+async function renderSafely() {
+  try {
+    await render();
+  } catch (error) {
+    console.error("画面表示エラー:", error);
+    renderFirebaseError(error);
+  }
+}
+
+async function bootstrap() {
+  try {
+    const user = await waitForAuth();
+    try {
+      await ensureSampleEvent(user);
+    } catch (error) {
+      console.warn("サンプルイベントを準備できませんでした:", error);
+    }
+    await render();
+  } catch (error) {
+    console.error("Firebase初期化エラー:", error);
+    renderFirebaseError(error);
+  }
+}
+
+window.addEventListener("hashchange", renderSafely);
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   state.installPrompt = event;
@@ -858,3 +1039,5 @@ window.addEventListener("beforeinstallprompt", (event) => {
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
 }
+
+bootstrap();
