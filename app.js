@@ -1,3 +1,26 @@
+const firebaseConfig = {
+  apiKey: "AIzaSyDBzOFTiNs9I5zp-LydLseLaMYw_GvvAio",
+  authDomain: "scheduler-app-484db.firebaseapp.com",
+  projectId: "scheduler-app-484db",
+  storageBucket: "scheduler-app-484db.firebasestorage.app",
+  messagingSenderId: "752169831087",
+  appId: "1:752169831087:web:b108a90e3d39236e44e25a",
+  measurementId: "G-C71T30M361"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
+
+// 匿名ログイン
+auth.onAuthStateChanged((user) => {
+  if (user) {
+    console.log("匿名ログイン完了:", user.uid);
+    render();
+  } else {
+    auth.signInAnonymously().catch(console.error);
+  }
+});
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 
@@ -90,6 +113,7 @@ const state = {
   profile: store.get("awaseru-profile", { name: "", stamps: [], university: "chubu" }),
   schedule: {},
   installPrompt: null,
+  currentEvent: null,
 };
 
 function dateKey(date) {
@@ -124,58 +148,27 @@ function makeEventDates() {
   return dates;
 }
 
-function seedData() {
-  const events = store.get("awaseru-events", {});
-  if (events.trip2026) return;
-  const dates = makeEventDates();
-  const sampleNames = [
-    ["たろう", "👑"],
-    ["はなこ", "☀️"],
-    ["けんた", "🚙"],
-    ["ゆうき", "🌙"],
-  ];
-  const participants = sampleNames.map(([name, stamp], index) => ({
-    id: `sample-${index}`,
-    name,
-    stamps: [stamp],
-    availability: Object.fromEntries(
-      dates.map((date, dateIndex) => {
-        const available = (dateIndex + index) % 4 !== 2;
-        const start = 9 + ((dateIndex + index) % 5);
-        return [
-          date,
-          {
-            status: available ? ((dateIndex + index) % 5 === 0 ? "maybe" : "yes") : "no",
-            mode: "time",
-            ranges: available ? [{ start: `${String(start).padStart(2, "0")}:00`, end: `${String(Math.min(start + 4, 21)).padStart(2, "0")}:00` }] : [],
-          },
-        ];
-      }),
-    ),
-  }));
-  events.trip2026 = {
-    id: "trip2026",
-    name: "夏休み旅行の予定調整",
-    description: "みんなで行く旅行の日程を決めよう。空いている日と時間を教えてください！",
-    dates,
-    createdAt: new Date().toISOString(),
-    participants,
-  };
-  store.set("awaseru-events", events);
+async function getEvent(id) {
+  try {
+    const doc = await db.collection("events").doc(id).get();
+    if (doc.exists) {
+      state.currentEvent = doc.data();
+      return state.currentEvent;
+    }
+    return null;
+  } catch (error) {
+    console.error("イベント取得エラー:", error);
+    return null;
+  }
 }
 
-function getEvents() {
-  return store.get("awaseru-events", {});
-}
-
-function getEvent(id) {
-  return getEvents()[id];
-}
-
-function saveEvent(event) {
-  const events = getEvents();
-  events[event.id] = event;
-  store.set("awaseru-events", events);
+async function saveEvent(event) {
+  try {
+    await db.collection("events").doc(event.id).set(event);
+    state.currentEvent = event;
+  } catch (error) {
+    console.error("イベント保存エラー:", error);
+  }
 }
 
 function makeId() {
@@ -667,7 +660,7 @@ function bindCommon() {
 }
 
 function bindHome() {
-  document.querySelector("#create-form")?.addEventListener("submit", (event) => {
+  document.querySelector("#create-form")?.addEventListener("submit",async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const id = makeId();
@@ -679,7 +672,7 @@ function bindHome() {
       createdAt: new Date().toISOString(),
       participants: [],
     };
-    saveEvent(newEvent);
+    await saveEvent(newEvent);
     state.eventId = id;
     navigate(`/e/${id}`);
   });
@@ -764,7 +757,7 @@ function bindDetails(event) {
 }
 
 function bindReview(event) {
-  document.querySelector("#submit-schedule")?.addEventListener("click", () => {
+  document.querySelector("#submit-schedule")?.addEventListener("click",async () => {
     const participant = {
       id: makeId(),
       name: state.profile.name,
@@ -776,7 +769,7 @@ function bindReview(event) {
     const existingIndex = event.participants.findIndex((item) => item.name === participant.name && !item.id.startsWith("sample"));
     if (existingIndex >= 0) event.participants[existingIndex] = participant;
     else event.participants.push(participant);
-    saveEvent(event);
+    await saveEvent(event);
     showToast("予定を提出しました");
     navigate(`/e/${event.id}/results`);
   });
@@ -811,7 +804,7 @@ function renderNotFound() {
   );
 }
 
-function render() {
+async function render() {
   const path = location.hash.slice(1) || "/";
   const match = path.match(/^\/e\/([^/]+)(?:\/([^/]+))?$/);
   let binder = bindHome;
@@ -819,7 +812,7 @@ function render() {
     app.innerHTML = homeView();
   } else if (match) {
     const [, id, screen = "welcome"] = match;
-    const event = getEvent(id);
+    const event = await getEvent(id);
     if (!event) {
       renderNotFound();
       return;
@@ -861,9 +854,6 @@ window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   state.installPrompt = event;
 });
-
-seedData();
-render();
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
