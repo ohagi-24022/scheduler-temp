@@ -587,18 +587,52 @@ p {
 .stamp-option {
   position: relative;
   display: grid;
-  min-height: 94px;
+  min-height: 72px;
   place-items: center;
   gap: 4px;
   border: 1px solid #dbe1eb;
   border-radius: 13px;
   background: white;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   cursor: pointer;
 }
 
 .stamp-option .stamp-emoji {
-  font-size: 1.65rem;
+  font-size: 1.25rem;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.custom-university-fields {
+  margin: -4px 0 20px;
+  padding: 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.custom-period-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.custom-period-row {
+  display: grid;
+  grid-template-columns: 72px 1fr auto 1fr;
+  align-items: center;
+  gap: 7px;
+}
+
+.custom-period-row input {
+  min-width: 0;
+  height: 42px;
+  padding: 0 8px;
+  border: 1px solid #d5ddea;
+  border-radius: 9px;
+  background: white;
 }
 
 .stamp-option.selected {
@@ -890,6 +924,42 @@ p {
   gap: 12px;
 }
 
+.all-day-summary {
+  margin-bottom: 16px;
+}
+
+.created-event-card {
+  padding: 30px;
+}
+
+.created-check {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  margin: 0 auto 18px;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  background: var(--green);
+  font-size: 1.8rem;
+  font-weight: 900;
+  box-shadow: 0 12px 28px rgba(22, 163, 106, 0.24);
+}
+
+.share-card-large {
+  margin: 24px 0 14px;
+}
+
+.created-actions {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.created-actions a {
+  text-decoration: none;
+}
+
 .review-day {
   padding: 16px 18px;
   border: 1px solid var(--line);
@@ -1040,18 +1110,11 @@ p {
 .time-axis {
   color: var(--muted);
   font-size: 0.66rem;
+  text-align: center;
 }
 
 .time-axis span:first-child {
   color: transparent;
-}
-
-.time-axis span {
-  transform: translateX(-50%);
-}
-
-.time-axis span:nth-child(2) {
-  transform: none;
 }
 
 .person-row {
@@ -1259,6 +1322,18 @@ p {
 
   .time-range > span {
     display: none;
+  }
+
+  .custom-period-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .custom-period-row span {
+    display: none;
+  }
+
+  .custom-period-row [data-part="name"] {
+    grid-column: 1 / -1;
   }
 
   .screen-heading {

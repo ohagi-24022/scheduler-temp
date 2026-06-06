@@ -1,6 +1,6 @@
 {
-  "name": "あわせる - 学生のための予定調整",
-  "short_name": "あわせる",
+  "name": "空きコマット - 学生のための予定調整",
+  "short_name": "空きコマット",
   "description": "大学ごとのコマ時間を実時間に変換して予定を合わせるPWA",
   "start_url": "./",
   "display": "standalone",

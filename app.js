@@ -102,11 +102,20 @@ const store = {
 
 const state = {
   eventId: null,
-  profile: store.get("awaseru-profile", { name: "", stamps: [], university: "chubu" }),
+  profile: store.get("awaseru-profile", {
+    name: "",
+    stamps: [],
+    university: "chubu",
+    customUniversityName: "",
+    customPeriods: UNIVERSITIES.custom.periods.map((period) => [...period]),
+  }),
   schedule: {},
   installPrompt: null,
   currentEvent: null,
 };
+
+state.profile.customPeriods ||= UNIVERSITIES.custom.periods.map((period) => [...period]);
+state.profile.customUniversityName ||= "";
 
 function dateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -310,6 +319,32 @@ function makeId() {
   return Math.random().toString(36).slice(2, 8);
 }
 
+function selectedUniversity() {
+  if (state.profile.university !== "custom") {
+    return UNIVERSITIES[state.profile.university] || UNIVERSITIES.chubu;
+  }
+
+  return {
+    name: state.profile.customUniversityName.trim() || "カスタム大学",
+    periods: state.profile.customPeriods?.length
+      ? state.profile.customPeriods
+      : UNIVERSITIES.custom.periods,
+  };
+}
+
+function eventShareUrl(eventId) {
+  return `${location.origin}${location.pathname}#/e/${eventId}`;
+}
+
+function installBanner() {
+  return `
+    <aside class="install-banner">
+      <span><strong>ホーム画面に追加できます</strong><small>次回からワンタップで開けて便利です</small></span>
+      <button class="ghost-button" data-install-button>追加方法を見る</button>
+    </aside>
+  `;
+}
+
 function shell(content, options = {}) {
   const { narrow = false, headerAction = "" } = options;
   return `
@@ -317,12 +352,12 @@ function shell(content, options = {}) {
       <header class="site-header">
         <a class="brand" href="#/">
           <span class="brand-mark">${ICONS.calendar}</span>
-          <span>あわせる</span>
+          <span>空きコマット</span>
         </a>
         ${headerAction}
       </header>
       <main class="page ${narrow ? "narrow" : ""}">${content}</main>
-      <footer class="site-footer">© 2026 あわせる</footer>
+      <footer class="site-footer">© 2026 空きコマット</footer>
     </div>
   `;
 }
@@ -359,6 +394,7 @@ function navigate(path) {
 }
 
 function homeView() {
+  const recentEventId = store.get("akikomat-recent-event", null);
   return shell(`
     <div class="hero-grid">
       <section class="hero-copy">
@@ -389,8 +425,17 @@ function homeView() {
           <span><strong>サンプルイベントを見る</strong><small>参加から集計まで、すぐに試せます</small></span>
           ${icon("arrow")}
         </a>
+        ${
+          recentEventId
+            ? `<a class="demo-link recent-event-link" href="#/e/${escapeAttr(recentEventId)}/created">
+                <span><strong>直近に作成したイベント</strong><small>共有URLをもう一度表示します</small></span>
+                ${icon("arrow")}
+              </a>`
+            : ""
+        }
       </section>
     </div>
+    ${installBanner()}
   `);
 }
 
@@ -423,10 +468,33 @@ function welcomeView(event) {
           </div>
         </div>
       </section>
-      <aside class="install-banner">
-        <span><strong>ホーム画面に追加できます</strong><small>次回からワンタップで開けて便利です</small></span>
-        <button class="ghost-button" id="install-button">追加方法を見る</button>
-      </aside>
+      ${installBanner()}
+    `,
+    { narrow: true },
+  );
+}
+
+function createdEventView(event) {
+  const shareUrl = eventShareUrl(event.id);
+  return shell(
+    `
+      <section class="card form-card created-event-card">
+        <div class="created-check">✓</div>
+        <div class="center">
+          <span class="eyebrow">イベントを作成しました</span>
+          <h1>${escapeHtml(event.name)}</h1>
+          <p class="card-subtitle">先に共有URLをコピーしておけば、途中で画面を離れても安心です。</p>
+        </div>
+        <div class="share-card share-card-large">
+          <input id="share-url" readonly value="${escapeAttr(shareUrl)}" />
+          <button class="primary-button" data-copy-url>URLをコピー</button>
+        </div>
+        <div class="created-actions">
+          <button class="primary-button full-button" id="creator-continue">自分の予定を入力する ${icon("arrow")}</button>
+          <a class="secondary-button full-button" href="#/e/${event.id}">参加者向け画面を確認する</a>
+        </div>
+        <div class="notice">このイベントはトップ画面の「直近に作成したイベント」から再表示できます。</div>
+      </section>
     `,
     { narrow: true },
   );
@@ -467,6 +535,26 @@ function profileView(event) {
                 )
                 .join("")}
             </select>
+          </div>
+          <div id="custom-university-fields" class="custom-university-fields ${state.profile.university === "custom" ? "" : "hidden"}">
+            <div class="field">
+              <label for="custom-university-name">大学名</label>
+              <input id="custom-university-name" name="customUniversityName" maxlength="40" value="${escapeAttr(state.profile.customUniversityName)}" placeholder="例）○○大学" />
+            </div>
+            <span class="label">コマ時間</span>
+            <div class="custom-period-list">
+              ${state.profile.customPeriods
+                .map(
+                  ([name, start, end], index) => `
+                    <div class="custom-period-row">
+                      <input aria-label="${index + 1}コマ目の名称" data-custom-period="${index}" data-part="name" value="${escapeAttr(name)}" />
+                      <input aria-label="${index + 1}コマ目の開始時刻" data-custom-period="${index}" data-part="start" type="time" value="${escapeAttr(start)}" />
+                      <span>〜</span>
+                      <input aria-label="${index + 1}コマ目の終了時刻" data-custom-period="${index}" data-part="end" type="time" value="${escapeAttr(end)}" />
+                    </div>`,
+                )
+                .join("")}
+            </div>
           </div>
           <div class="notice">選んだ大学のコマ時間を、結果画面では共通の実時間へ自動変換します。</div>
           <div class="action-row">
@@ -510,6 +598,7 @@ function calendarView(event) {
   const dates = event.dates;
   const first = parseDate(dates[0]);
   const selected = dates.filter((key) => ["yes", "maybe"].includes(state.schedule[key]?.status)).length;
+  const hasConditionalDate = dates.some((key) => state.schedule[key]?.status === "maybe");
   return shell(
     `
       ${stepper(2)}
@@ -532,10 +621,10 @@ function calendarView(event) {
         <div class="legend">
           <span><b class="yes">○</b> 行ける</span><span><b class="maybe">△</b> 条件付き</span><span><b>×</b> 無理</span>
         </div>
-        <div class="calendar-hint"><strong>${selected}日を詳細入力の対象に選択中。</strong> ○・△の日は、次の画面でコマまたは時刻を指定できます。</div>
+        <div class="calendar-hint"><strong>${selected}日を参加可能として選択中。</strong> ○は終日参加可能として保存し、△の日だけ詳しい時間を入力します。</div>
         <div class="action-row">
           <button type="button" class="secondary-button" data-back>戻る</button>
-          <button type="button" class="primary-button" id="calendar-next" ${selected ? "" : "disabled"}>詳細時間を入力 ${icon("arrow")}</button>
+          <button type="button" class="primary-button" id="calendar-next" ${selected ? "" : "disabled"}>${hasConditionalDate ? "条件付きの時間を入力" : "入力内容を確認"} ${icon("arrow")}</button>
         </div>
       </section>
     `,
@@ -544,7 +633,7 @@ function calendarView(event) {
 }
 
 function periodEditor(key, entry) {
-  const university = UNIVERSITIES[state.profile.university] || UNIVERSITIES.custom;
+  const university = selectedUniversity();
   return `
     <div class="period-list">
       ${university.periods
@@ -576,14 +665,28 @@ function timeEditor(key, entry) {
   `;
 }
 
+function dayEditorBody(key, entry) {
+  const university = selectedUniversity();
+  return `
+    <span class="label">${entry.mode === "period" ? `${escapeHtml(university.name)}の空きコマ` : "空いている時間帯"}</span>
+    ${entry.mode === "period" ? periodEditor(key, entry) : timeEditor(key, entry)}
+  `;
+}
+
 function detailsView(event) {
-  const selected = event.dates.filter((key) => ["yes", "maybe"].includes(state.schedule[key]?.status));
+  const allDayDates = event.dates.filter((key) => state.schedule[key]?.status === "yes");
+  const selected = event.dates.filter((key) => state.schedule[key]?.status === "maybe");
   return shell(
     `
       ${stepper(2)}
       <div class="screen-heading">
-        <div><h1>空いている時間を入力</h1><p>日ごとに「コマ単位」と「時間単位」を切り替えられます。</p></div>
+        <div><h1>条件付きの日の時間を入力</h1><p>○の日は終日参加可能として設定済みです。△の日だけ時間を指定してください。</p></div>
       </div>
+      ${
+        allDayDates.length
+          ? `<div class="notice all-day-summary"><strong>終日参加可能：</strong>${allDayDates.map((key) => formatDate(key)).join("、")}</div>`
+          : ""
+      }
       <div id="day-editors">
         ${selected
           .map((key) => {
@@ -601,8 +704,7 @@ function detailsView(event) {
                   </div>
                 </div>
                 <div class="day-editor-body">
-                  <span class="label">${entry.mode === "period" ? `${UNIVERSITIES[state.profile.university].name}の空きコマ` : "空いている時間帯"}</span>
-                  ${entry.mode === "period" ? periodEditor(key, entry) : timeEditor(key, entry)}
+                  ${dayEditorBody(key, entry)}
                 </div>
               </section>`;
           })
@@ -619,8 +721,9 @@ function detailsView(event) {
 
 function entryRanges(entry) {
   if (entry.status === "no") return [];
+  if (entry.mode === "allDay" || entry.status === "yes") return [{ start: "08:00", end: "22:00" }];
   if (entry.mode === "time") return entry.ranges || [];
-  const university = UNIVERSITIES[state.profile.university] || UNIVERSITIES.custom;
+  const university = selectedUniversity();
   return (entry.periods || []).map((index) => {
     const [, start, end] = university.periods[index];
     return { start, end };
@@ -792,6 +895,32 @@ function bindCommon() {
   document.querySelectorAll("[data-back]").forEach((button) => {
     button.addEventListener("click", () => history.back());
   });
+  document.querySelectorAll("[data-install-button]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (state.installPrompt) {
+        state.installPrompt.prompt();
+        await state.installPrompt.userChoice;
+        state.installPrompt = null;
+      } else {
+        showToast("ブラウザのメニューから「ホーム画面に追加」を選べます");
+      }
+    });
+  });
+  document.querySelectorAll("[data-copy-url]").forEach((button) => {
+    button.addEventListener("click", () => copyShareUrl());
+  });
+}
+
+async function copyShareUrl() {
+  const input = document.querySelector("#share-url");
+  if (!input) return;
+  try {
+    await navigator.clipboard.writeText(input.value);
+    showToast("共有URLをコピーしました");
+  } catch {
+    input.select();
+    showToast("URLを選択しました");
+  }
 }
 
 function bindHome() {
@@ -812,7 +941,8 @@ function bindHome() {
     try {
       await saveEvent(newEvent);
       state.eventId = id;
-      navigate(`/e/${id}`);
+      store.set("akikomat-recent-event", id);
+      navigate(`/e/${id}/created`);
     } catch (error) {
       showToast(firebaseErrorMessage(error));
       submitButton.disabled = false;
@@ -822,15 +952,10 @@ function bindHome() {
 
 function bindWelcome(event) {
   document.querySelector("#join-button")?.addEventListener("click", () => navigate(`/e/${event.id}/profile`));
-  document.querySelector("#install-button")?.addEventListener("click", async () => {
-    if (state.installPrompt) {
-      state.installPrompt.prompt();
-      await state.installPrompt.userChoice;
-      state.installPrompt = null;
-    } else {
-      showToast("ブラウザのメニューから「ホーム画面に追加」を選べます");
-    }
-  });
+}
+
+function bindCreatedEvent(event) {
+  document.querySelector("#creator-continue")?.addEventListener("click", () => navigate(`/e/${event.id}/profile`));
 }
 
 function bindProfile(event) {
@@ -845,11 +970,26 @@ function bindProfile(event) {
       }
     });
   });
+  const universitySelect = document.querySelector("#university");
+  const customFields = document.querySelector("#custom-university-fields");
+  const customName = document.querySelector("#custom-university-name");
+  universitySelect?.addEventListener("change", () => {
+    const isCustom = universitySelect.value === "custom";
+    customFields?.classList.toggle("hidden", !isCustom);
+    if (customName) customName.required = isCustom;
+  });
+  if (customName) customName.required = universitySelect?.value === "custom";
   document.querySelector("#profile-form")?.addEventListener("submit", (submitEvent) => {
     submitEvent.preventDefault();
     const form = new FormData(submitEvent.currentTarget);
     state.profile.name = form.get("name").trim();
     state.profile.university = form.get("university");
+    state.profile.customUniversityName = form.get("customUniversityName")?.trim() || "";
+    state.profile.customPeriods = Array.from(document.querySelectorAll(".custom-period-row")).map((row) => [
+      row.querySelector('[data-part="name"]').value.trim(),
+      row.querySelector('[data-part="start"]').value,
+      row.querySelector('[data-part="end"]').value,
+    ]);
     store.set("awaseru-profile", state.profile);
     navigate(`/e/${event.id}/calendar`);
   });
@@ -864,23 +1004,28 @@ function bindCalendar(event) {
       if (!next) {
         delete state.schedule[key];
       } else {
-        state.schedule[key] = { ...(state.schedule[key] || {}), status: next };
+        const previous = state.schedule[key] || {};
+        state.schedule[key] =
+          next === "yes"
+            ? { ...previous, status: next, mode: "allDay", ranges: [{ start: "08:00", end: "22:00" }] }
+            : {
+                ...previous,
+                status: next,
+                mode: next === "maybe" && previous.mode === "allDay" ? "period" : previous.mode,
+              };
       }
       render();
     });
   });
-  document.querySelector("#calendar-next")?.addEventListener("click", () => navigate(`/e/${event.id}/details`));
+  document.querySelector("#calendar-next")?.addEventListener("click", () => {
+    const hasConditionalDate = event.dates.some((key) => state.schedule[key]?.status === "maybe");
+    navigate(`/e/${event.id}/${hasConditionalDate ? "details" : "review"}`);
+  });
   document.querySelector("#show-results")?.addEventListener("click", () => navigate(`/e/${event.id}/results`));
 }
 
-function bindDetails(event) {
-  document.querySelectorAll("[data-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.schedule[button.dataset.date].mode = button.dataset.mode;
-      render();
-    });
-  });
-  document.querySelectorAll("[data-period]").forEach((input) => {
+function bindDetailFields(root = document) {
+  root.querySelectorAll("[data-period]").forEach((input) => {
     input.addEventListener("change", () => {
       const entry = state.schedule[input.dataset.date];
       const period = Number(input.dataset.period);
@@ -888,13 +1033,34 @@ function bindDetails(event) {
       entry.periods = input.checked ? [...new Set([...entry.periods, period])] : entry.periods.filter((item) => item !== period);
     });
   });
-  document.querySelectorAll("[data-time]").forEach((select) => {
+  root.querySelectorAll("[data-time]").forEach((select) => {
     select.addEventListener("change", () => {
       const entry = state.schedule[select.dataset.date];
       entry.ranges ||= [{ start: "10:00", end: "18:00" }];
       entry.ranges[0][select.dataset.time] = select.value;
     });
   });
+}
+
+function bindDetails(event) {
+  document.querySelectorAll("[data-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const scrollPosition = window.scrollY;
+      const key = button.dataset.date;
+      const editor = document.querySelector(`[data-editor="${key}"]`);
+      const entry = state.schedule[key];
+      entry.mode = button.dataset.mode;
+      editor.querySelectorAll("[data-mode]").forEach((modeButton) => {
+        modeButton.classList.toggle("active", modeButton.dataset.mode === entry.mode);
+      });
+      const body = editor.querySelector(".day-editor-body");
+      body.style.minHeight = `${body.offsetHeight}px`;
+      body.innerHTML = dayEditorBody(key, entry);
+      bindDetailFields(body);
+      window.scrollTo({ top: scrollPosition, behavior: "instant" });
+    });
+  });
+  bindDetailFields();
   document.querySelector("#details-next")?.addEventListener("click", () => navigate(`/e/${event.id}/review`));
 }
 
@@ -926,16 +1092,7 @@ function bindResults(event) {
     bindCommon();
     bindResults(event);
   });
-  document.querySelector("#copy-url")?.addEventListener("click", async () => {
-    const value = document.querySelector("#share-url").value;
-    try {
-      await navigator.clipboard.writeText(value);
-      showToast("共有URLをコピーしました");
-    } catch {
-      document.querySelector("#share-url").select();
-      showToast("URLを選択しました");
-    }
-  });
+  document.querySelector("#copy-url")?.addEventListener("click", () => copyShareUrl());
   document.querySelector("#answer-again")?.addEventListener("click", () => {
     state.schedule = {};
     navigate(`/e/${event.id}/profile`);
@@ -978,6 +1135,9 @@ async function render() {
     if (screen === "welcome") {
       app.innerHTML = welcomeView(event);
       binder = () => bindWelcome(event);
+    } else if (screen === "created") {
+      app.innerHTML = createdEventView(event);
+      binder = () => bindCreatedEvent(event);
     } else if (screen === "profile") {
       app.innerHTML = profileView(event);
       binder = () => bindProfile(event);

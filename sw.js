@@ -1,4 +1,4 @@
-const CACHE_NAME = "awaseru-v2";
+const CACHE_NAME = "akikomat-v3";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest", "./icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
