@@ -14,6 +14,7 @@ const auth = firebase.auth();
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
+const installGuide = document.querySelector("#install-guide");
 let authReadyPromise;
 
 const ICONS = {
@@ -357,13 +358,92 @@ function eventShareUrl(eventId) {
   return `${location.origin}${location.pathname}#/e/${eventId}`;
 }
 
+function deviceType() {
+  const userAgent = navigator.userAgent || "";
+  const isIpadOs = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  if (/iPhone|iPad|iPod/i.test(userAgent) || isIpadOs) return "ios";
+  if (/Android/i.test(userAgent)) return "android";
+  return "other";
+}
+
+function isMobileDevice() {
+  return deviceType() !== "other" || (navigator.maxTouchPoints > 0 && window.innerWidth <= 820);
+}
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+}
+
 function installBanner() {
+  if (!isMobileDevice() || isStandalone()) return "";
+  const type = deviceType();
+  const description =
+    type === "ios"
+      ? "Safariの共有ボタンから追加できます"
+      : type === "android"
+        ? "Chromeのメニューから追加できます"
+        : "ブラウザのメニューから追加できます";
   return `
     <aside class="install-banner">
-      <span><strong>ホーム画面に追加できます</strong><small>次回からワンタップで開けて便利です</small></span>
-      <button class="ghost-button" data-install-button>追加方法を見る</button>
+      <span><strong>ホーム画面からすぐ開けます</strong><small>${description}</small></span>
+      <button class="ghost-button" data-install-button>追加手順を見る</button>
     </aside>
   `;
+}
+
+function showInstallGuide() {
+  const type = deviceType();
+  const isIos = type === "ios";
+  const title = isIos ? "iPhoneでホーム画面に追加" : "Androidでホーム画面に追加";
+  const steps = isIos
+    ? [
+        "このページをSafariで開きます",
+        "画面下部の共有ボタン（□に↑）をタップ",
+        "「ホーム画面に追加」を選び、右上の「追加」をタップ",
+      ]
+    : [
+        "このページをChromeで開きます",
+        "右上の「︙」をタップ",
+        "「ホーム画面に追加」または「アプリをインストール」をタップ",
+      ];
+  const canInstallDirectly = type === "android" && state.installPrompt;
+
+  installGuide.innerHTML = `
+    <button class="install-guide-backdrop" type="button" data-close-install aria-label="閉じる"></button>
+    <section class="install-guide-sheet" role="dialog" aria-modal="true" aria-labelledby="install-guide-title">
+      <div class="install-guide-handle"></div>
+      <button class="install-guide-close" type="button" data-close-install aria-label="閉じる">×</button>
+      <span class="install-guide-icon">⌂</span>
+      <h2 id="install-guide-title">${title}</h2>
+      <ol>
+        ${steps.map((step) => `<li>${step}</li>`).join("")}
+      </ol>
+      ${
+        canInstallDirectly
+          ? '<button class="primary-button full-button" type="button" id="install-now">今すぐホーム画面に追加</button>'
+          : '<button class="secondary-button full-button" type="button" data-close-install>確認しました</button>'
+      }
+    </section>
+  `;
+  installGuide.classList.add("show");
+  installGuide.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+
+  installGuide.querySelectorAll("[data-close-install]").forEach((button) => {
+    button.addEventListener("click", closeInstallGuide);
+  });
+  installGuide.querySelector("#install-now")?.addEventListener("click", async () => {
+    state.installPrompt.prompt();
+    await state.installPrompt.userChoice;
+    state.installPrompt = null;
+    closeInstallGuide();
+  });
+}
+
+function closeInstallGuide() {
+  installGuide.classList.remove("show");
+  installGuide.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
 }
 
 function shell(content, options = {}) {
@@ -642,7 +722,7 @@ function calendarView(event) {
         <div class="legend">
           <span><b class="yes">○</b> 行ける</span><span><b class="maybe">△</b> 条件付き</span><span><b>×</b> 無理</span>
         </div>
-        <div class="calendar-hint"><strong>${selected}日を参加可能として選択中。</strong> ○は終日参加可能として保存し、△の日だけ詳しい時間を入力します。</div>
+        <div class="calendar-hint" id="calendar-hint"><strong>${selected}日を参加可能として選択中。</strong> ○は終日参加可能として保存し、△の日だけ詳しい時間を入力します。</div>
         <div class="action-row">
           <button type="button" class="secondary-button" data-back>戻る</button>
           <button type="button" class="primary-button" id="calendar-next" ${selected ? "" : "disabled"}>${hasConditionalDate ? "条件付きの時間を入力" : "入力内容を確認"} ${icon("arrow")}</button>
@@ -917,15 +997,7 @@ function bindCommon() {
     button.addEventListener("click", () => history.back());
   });
   document.querySelectorAll("[data-install-button]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      if (state.installPrompt) {
-        state.installPrompt.prompt();
-        await state.installPrompt.userChoice;
-        state.installPrompt = null;
-      } else {
-        showToast("ブラウザのメニューから「ホーム画面に追加」を選べます");
-      }
-    });
+    button.addEventListener("click", showInstallGuide);
   });
   document.querySelectorAll("[data-copy-url]").forEach((button) => {
     button.addEventListener("click", () => copyShareUrl());
@@ -1035,7 +1107,10 @@ function bindCalendar(event) {
                 mode: next === "maybe" && previous.mode === "allDay" ? "period" : previous.mode,
               };
       }
-      render();
+      button.dataset.status = next;
+      button.querySelector(".date-status").textContent = STATUS_MARK[next];
+      button.setAttribute("aria-label", `${formatDate(key)} ${next ? STATUS_NAME[next] : "未選択"}`);
+      updateCalendarSummary(event);
     });
   });
   document.querySelector("#calendar-next")?.addEventListener("click", () => {
@@ -1043,6 +1118,21 @@ function bindCalendar(event) {
     navigate(`/e/${event.id}/${hasConditionalDate ? "details" : "review"}`);
   });
   document.querySelector("#show-results")?.addEventListener("click", () => navigate(`/e/${event.id}/results`));
+}
+
+function updateCalendarSummary(event) {
+  const selected = event.dates.filter((key) => ["yes", "maybe"].includes(state.schedule[key]?.status)).length;
+  const hasConditionalDate = event.dates.some((key) => state.schedule[key]?.status === "maybe");
+  const hint = document.querySelector("#calendar-hint");
+  const nextButton = document.querySelector("#calendar-next");
+
+  if (hint) {
+    hint.innerHTML = `<strong>${selected}日を参加可能として選択中。</strong> ○は終日参加可能として保存し、△の日だけ詳しい時間を入力します。`;
+  }
+  if (nextButton) {
+    nextButton.disabled = selected === 0;
+    nextButton.innerHTML = `${hasConditionalDate ? "条件付きの時間を入力" : "入力内容を確認"} ${icon("arrow")}`;
+  }
 }
 
 function bindDetailFields(root = document) {
