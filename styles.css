@@ -461,6 +461,25 @@ p {
   margin-top: 10px;
 }
 
+.result-button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  color: var(--blue-dark);
+  background: #eff6ff;
+  font-size: 0.86rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.result-button::before {
+  margin-right: 7px;
+  content: "↗";
+}
+
 .event-meta {
   display: grid;
   grid-template-columns: 1fr 1fr;

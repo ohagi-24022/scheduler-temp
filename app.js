@@ -391,8 +391,8 @@ function installBanner() {
   `;
 }
 
-function viewResultsButton(event, className = "secondary-button full-button") {
-  return `<button class="${className}" type="button" data-view-results="${event.id}">現在の結果を見る</button>`;
+function viewResultsButton(event, className = "secondary-button full-button", label = "現在の結果を見る") {
+  return `<button class="${className}" type="button" data-view-results="${event.id}">${label}</button>`;
 }
 
 function showInstallGuide() {
@@ -566,7 +566,7 @@ function welcomeView(event) {
             </div>
             <button class="primary-button full-button" id="join-button">参加して予定を入力する ${icon("arrow")}</button>
             <div class="welcome-result-action">
-              ${viewResultsButton(event)}
+              ${viewResultsButton(event, "result-button full-button", "回答せずに現在の結果を見る")}
             </div>
           </div>
           <div class="feature-strip">
@@ -1318,7 +1318,10 @@ window.addEventListener("beforeinstallprompt", (event) => {
 });
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
+  window.addEventListener("load", async () => {
+    const registration = await navigator.serviceWorker.register("./sw.js?v=6");
+    registration.update();
+  });
 }
 
 bootstrap();
