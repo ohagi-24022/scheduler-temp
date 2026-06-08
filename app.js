@@ -391,6 +391,10 @@ function installBanner() {
   `;
 }
 
+function viewResultsButton(event, className = "secondary-button full-button") {
+  return `<button class="${className}" type="button" data-view-results="${event.id}">現在の結果を見る</button>`;
+}
+
 function showInstallGuide() {
   const type = deviceType();
   const isIos = type === "ios";
@@ -561,6 +565,9 @@ function welcomeView(event) {
               <div class="meta-item">入力時間 <strong>約1分</strong></div>
             </div>
             <button class="primary-button full-button" id="join-button">参加して予定を入力する ${icon("arrow")}</button>
+            <div class="welcome-result-action">
+              ${viewResultsButton(event)}
+            </div>
           </div>
           <div class="feature-strip">
             <div class="feature-mini"><span class="feature-symbol yes">○</span>行ける日を選ぶ</div>
@@ -592,6 +599,7 @@ function createdEventView(event) {
         </div>
         <div class="created-actions">
           <button class="primary-button full-button" id="creator-continue">自分の予定を入力する ${icon("arrow")}</button>
+          ${viewResultsButton(event)}
           <a class="secondary-button full-button" href="#/e/${event.id}">参加者向け画面を確認する</a>
         </div>
         <div class="notice">このイベントはトップ画面の「直近に作成したイベント」から再表示できます。</div>
@@ -705,7 +713,7 @@ function calendarView(event) {
       ${stepper(2)}
       <div class="screen-heading">
         <div><h1>行ける日を選択</h1><p>日付をタップすると「○ → △ → ×」の順に切り替わります。</p></div>
-        <button class="header-action" id="show-results">現在の結果を見る</button>
+        ${viewResultsButton(event, "header-action")}
       </div>
       <section class="card calendar-card">
         <div class="calendar-month">
@@ -1002,6 +1010,9 @@ function bindCommon() {
   document.querySelectorAll("[data-copy-url]").forEach((button) => {
     button.addEventListener("click", () => copyShareUrl());
   });
+  document.querySelectorAll("[data-view-results]").forEach((button) => {
+    button.addEventListener("click", () => navigate(`/e/${button.dataset.viewResults}/results`));
+  });
 }
 
 async function copyShareUrl() {
@@ -1117,7 +1128,6 @@ function bindCalendar(event) {
     const hasConditionalDate = event.dates.some((key) => state.schedule[key]?.status === "maybe");
     navigate(`/e/${event.id}/${hasConditionalDate ? "details" : "review"}`);
   });
-  document.querySelector("#show-results")?.addEventListener("click", () => navigate(`/e/${event.id}/results`));
 }
 
 function updateCalendarSummary(event) {

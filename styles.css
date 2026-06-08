@@ -457,6 +457,10 @@ p {
   color: var(--muted);
 }
 
+.welcome-result-action {
+  margin-top: 10px;
+}
+
 .event-meta {
   display: grid;
   grid-template-columns: 1fr 1fr;
